@@ -8,16 +8,15 @@ This toy has a client and server process:
 
 **Server**
 * Creates a self-signed CA and leaf service certificate.
-* Creates a sample `join-token`.
-* Hosts a `/ca` enpoint that supplies the CA public key
-* Hosts a `/join` endpoint that validates a proof of membership before providing a `<CA Bundle>`
-* Waits 5 seconds to start the client
+* Creates a sample `joinToken`.
+* Hosts a `/ca` enpoint that supplies the CA public key.
+* Hosts a `/join` endpoint that validates a proof of membership before providing a `<CA Bundle>`.
+* Waits 5 seconds to start the client.
 
 **Client**
-* Requests the CA public cert from server process
-* Verifies that the CA public cert matches its `join-token` hash
-* Generates its own proof of membership from it's UUID (this is actually unnecessary - it could just use the shared secret at this point)
-* Request the `CA bundle` from the `/ca` endpoint.
+* Requests the CA public cert from server process.
+* Verifies that the CA public cert matches its `joinToken` hash.
+* Request the `CA bundle` from the `/ca` endpoint using its own `joinToken` as proof of membership.
 
 
 # Running the toy

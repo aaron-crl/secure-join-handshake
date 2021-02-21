@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"encoding/pem"
+	"errors"
 	"hash/crc32"
 	"log"
 	"math/big"
@@ -20,11 +21,6 @@ import (
 
 type caAsPEM struct {
 	Bytes []byte
-}
-
-type addJoinProof struct {
-	TokenID []byte // tokenID of join-token
-	MAC     []byte // HMAC(tokenID, sharedSecret)
 }
 
 // helper function for hmac because go makes it
@@ -43,9 +39,21 @@ func validHmac256(message, messageMAC, key []byte) bool {
 	return hmac.Equal(messageMAC, expectedMAC)
 }
 
-// validate a joinProof
-func validJoinProof(proof addJoinProof, sharedSecret []byte) bool {
-	return validHmac256(proof.TokenID, proof.MAC, sharedSecret)
+// validJoinToken is a dummy validation function.
+func validJoinToken(validToken joinToken, requestToken joinToken) (bool, error) {
+	if validToken.TokenID != requestToken.TokenID {
+		return false, errors.New("invalid tokenID")
+	}
+
+	if time.Now().After(requestToken.Expiration) {
+		return false, errors.New("expired tokenID")
+	}
+
+	if 0 != bytes.Compare(validToken.SharedSecret, requestToken.SharedSecret) {
+		return false, errors.New("invalid sharedSecret")
+	}
+
+	return true, nil
 }
 
 // trust bundle builder
@@ -170,16 +178,16 @@ func createServiceCerts(hostname string, caCertPEM []byte, caCertKeyPEM []byte) 
 }
 
 type joinToken struct {
-	tokenID      uuid.UUID
-	sharedSecret []byte
-	expiration   time.Time
+	TokenID      uuid.UUID
+	SharedSecret []byte
+	Expiration   time.Time
 }
 
 func (jt joinToken) Marshal(caPublicKey []byte) string {
-	id, _ := jt.tokenID.MarshalBinary()
-	authFingerprint := computeHmac256(caPublicKey, jt.sharedSecret)
+	id, _ := jt.TokenID.MarshalBinary()
+	authFingerprint := computeHmac256(caPublicKey, jt.SharedSecret)
 	token := append(id, authFingerprint...)   // 16 + 32
-	token = append(token, jt.sharedSecret...) // + 32
+	token = append(token, jt.SharedSecret...) // + 32
 	cSum := crc32.ChecksumIEEE(token)
 	token = append(token, byte(cSum)) // + 1 Truncated checksum
 	return hex.EncodeToString(token)
@@ -197,12 +205,12 @@ func unmarshalJoinToken(s string) (jt joinToken, authFingerprint []byte) {
 	if byte(cSum) != raw[len(raw)-1] {
 		log.Fatal("Checksum failed, possible copy/paste error.")
 	}
-	jt.tokenID, err = uuid.FromBytes(raw[:16])
+	jt.TokenID, err = uuid.FromBytes(raw[:16])
 	if nil != err {
 		log.Fatal("Failed to decode tokenID.")
 	}
 	authFingerprint = raw[16:48]
-	jt.sharedSecret = raw[48:80]
+	jt.SharedSecret = raw[48:80]
 
 	return
 }
@@ -214,9 +222,9 @@ func testMarshalling() {
 	tokenID, _ := uuid.NewRandom()
 
 	sourceToken := joinToken{
-		tokenID:      tokenID,
-		sharedSecret: []byte("sUp3rS3kr!tsUp3rS3kr!tsUp3rS3kr!"),
-		expiration:   time.Time{},
+		TokenID:      tokenID,
+		SharedSecret: []byte("sUp3rS3kr!tsUp3rS3kr!tsUp3rS3kr!"),
+		Expiration:   time.Time{},
 	}
 
 	stEncoded := sourceToken.Marshal(caPublicKey)
@@ -225,13 +233,13 @@ func testMarshalling() {
 
 	destToken, authFP := unmarshalJoinToken(stEncoded)
 
-	if sourceToken.tokenID != destToken.tokenID {
+	if sourceToken.TokenID != destToken.TokenID {
 		log.Fatal("tokenID failed to marshal/unmarshal")
 	}
-	if !bytes.Equal(sourceToken.sharedSecret, destToken.sharedSecret) {
+	if !bytes.Equal(sourceToken.SharedSecret, destToken.SharedSecret) {
 		log.Fatal("sharedSecret failed to marshal/unmarshal")
 	}
-	if !validHmac256(caPublicKey, authFP, destToken.sharedSecret) {
+	if !validHmac256(caPublicKey, authFP, destToken.SharedSecret) {
 		log.Fatal("authFingerprint failed to marshal/unmarshal")
 	}
 }

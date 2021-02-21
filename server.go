@@ -43,29 +43,31 @@ func runServer(selfAddress string, serviceCert []byte, serviceCertKey []byte, ca
 
 	// endpoint to allow joining node to request CA bundle and join
 	http.HandleFunc("/join", func(res http.ResponseWriter, req *http.Request) {
-		proof := addJoinProof{}
+		requestToken := joinToken{}
 
 		// TODO (aaron-crl): [Security] make this more error resilient to size and shape attacks
-		err := json.NewDecoder(req.Body).Decode(&proof)
+		err := json.NewDecoder(req.Body).Decode(&requestToken)
 		if err != nil {
 			http.Error(res, err.Error(), http.StatusBadRequest)
 			log.Printf("/join: Bad proof from %s\n", req.RemoteAddr)
 			return
 		}
 
-		log.Printf("Received proof for alleged join-token: %x\n", proof.TokenID)
+		log.Printf("Received proof for alleged join-token: %x\n", requestToken.TokenID)
 
 		// TODO look up token in database, verify not expired, etc
 		// the original token is just provided to this function for
 		// demonstration purposes
 
 		// check if valid
-		if !validJoinProof(proof, jt.sharedSecret) {
-			http.Error(res, "invalid join proof", http.StatusBadRequest)
+		validRequest, err := validJoinToken(jt, requestToken)
+		if !validRequest {
+			http.Error(res, "invalid join request", http.StatusBadRequest)
+			log.Printf("Bad join request received: %s", err)
 			return
 		}
 
-		log.Printf("Captured valid join for tokenID %x\n", proof.TokenID)
+		log.Printf("Captured valid join for tokenID %x\n", requestToken.TokenID)
 
 		// TODO acknowledge validation to client (send CA bundle)
 		res.Write([]byte("<CA Bundle>"))
@@ -87,9 +89,9 @@ func main() {
 	tokenID, _ := uuid.NewRandom()
 
 	jt := joinToken{
-		tokenID:      tokenID,
-		sharedSecret: []byte("sUp3rS3kr!tsUp3rS3kr!tsUp3rS3kr!"), // This MUST be 32 bytes
-		expiration:   time.Now().Add(time.Hour),
+		TokenID:      tokenID,
+		SharedSecret: []byte("sUp3rS3kr!tsUp3rS3kr!tsUp3rS3kr!"), // This MUST be 32 bytes
+		Expiration:   time.Now().Add(time.Hour),
 	}
 
 	// Create a server with a CA and Service Certificate
@@ -104,7 +106,7 @@ func main() {
 	time.Sleep(5 * time.Second)
 
 	log.Println("Starting client test.")
-	caBundle, err := getValidatedPeerCaCert(selfAddress, jt, computeHmac256(caCert, jt.sharedSecret))
+	caBundle, err := getValidatedPeerCaCert(selfAddress, jt, computeHmac256(caCert, jt.SharedSecret))
 	if nil != err {
 		log.Fatal(err.Error())
 	}

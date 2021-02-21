@@ -42,7 +42,7 @@ func getValidatedPeerCaCert(peerAddress string, jt joinToken, authFingerprint []
 
 	// validate CA is trusted
 	// HMAC(hostname + node CA public certificate, secretToken)
-	if !validHmac256(caCertBytes, authFingerprint, jt.sharedSecret) {
+	if !validHmac256(caCertBytes, authFingerprint, jt.SharedSecret) {
 		err = errors.New("untrusted CA, possible security issue")
 		return
 	}
@@ -54,23 +54,16 @@ func getValidatedPeerCaCert(peerAddress string, jt joinToken, authFingerprint []
 		RootCAs: certpool,
 	}
 
-	log.Println("CA is valid, starting proof")
-	// compute proof
-	id, _ := jt.tokenID.MarshalBinary()
-	mac := computeHmac256(id, jt.sharedSecret)
-	proof := addJoinProof{
-		TokenID: id,
-		MAC:     mac,
-	}
+	log.Println("CA is valid, starting request for bundle.")
 
-	// Request bundle with proof
+	// Request bundle with joinToken
 	// connect to HTTPS endpoint unverified (effectively HTTP) for CA
 	clientTransport := http.DefaultTransport.(*http.Transport).Clone()
 	clientTransport.TLSClientConfig = &tls.Config{RootCAs: certpool}
 	client := &http.Client{Transport: clientTransport}
 
 	body := new(bytes.Buffer)
-	json.NewEncoder(body).Encode(proof)
+	json.NewEncoder(body).Encode(jt)
 	res, err := client.Post("https://"+peerAddress+"/join", "application/json; charset=utf-8", body)
 	if nil != err {
 		return
